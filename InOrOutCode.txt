@@ -1,0 +1,117 @@
+Dim Board As Range, ListOfAddresses As String, NumberOfBlanks As Integer
+
+Sub Makemap()
+    'Makes the game map at random. The Size value can be changed to make the map bigger or smaller.
+    'The macro crashes for sizes around 16, because we hit a stack overflow error. I am unsure how to fix it given the current implementation.
+    Application.ScreenUpdating = False
+    Size = 10
+    Set Board = Range(Cells(2, 2), Cells(Size + 1, Size + 1))
+    'We make the cells square, for aesthetics.
+    Board.Rows.RowHeight = 18.75
+    Board.Columns.ColumnWidth = 2.86
+    Board.Clear
+    Board.HorizontalAlignment = xlCenter
+    For Each Cell In Board
+        X = Rand(1, 5)
+        If X = 1 Or X = 2 Then Cell.Value = "O": Cell.Interior.Color = vbRed
+        If X = 3 Or X = 4 Then Cell.Value = "I": Cell.Interior.Color = vbGreen
+        If X = 5 Then Cell.Value = " "
+    Next Cell
+    Call AreContiguous
+End Sub
+
+Function AreContiguous(Optional Zone As Range = Nothing) As Boolean
+    Dim Cell As Range
+    Dim InitialAddress As String
+    ListOfAddresses = ""
+    NumberOfBlanks = 0
+    'We cannot assign a default value that is not a constant.
+    'Therefore, we set it to Nothing and change the value if it is Nothing. Dumb workaround.
+    If Zone Is Nothing Then Set Zone = Board
+    'Find the first I on the board, use it as the initial value of our recursive function.
+    InitialAddress = Zone(MyMatch("I", Zone)).Address
+    Call GetContiguousAddresses(InitialAddress)
+    If Zone.Row = 2 Then
+        If WorksheetFunction.CountIf(Board, "I") > (Len(ListOfAddresses) - Len(Replace(ListOfAddresses, "$", ""))) / 2 - NumberOfBlanks Then
+            'MsgBox ("Cannot win: not contiguous")
+            'If you have more Is on the board than in the contiguous addressses, then you cannot win and we go back to step 1.
+            'GetContiguousAddresses makes a list of addresses in H1000 and the number of blanks met in H1001.
+            Call Makemap
+        Else
+            Call DrawLoop
+        End If
+    Else
+        AreContiguous = Not WorksheetFunction.CountIf(Zone, "I") > (Len(ListOfAddresses) - Len(Replace(ListOfAddresses, "$", ""))) / 2 - NumberOfBlanks
+        'If the board's row is not 2, then AreContiguous was called from DrawLoop and we need it to return something.
+    End If
+End Function
+
+Function GetContiguousAddresses(CurrentAddress As String) As String
+    'The heart and soul of this game. Outputs a list of all addresses that can be met without crossing an O...
+    'Starting from the first I in the board.
+    
+    'The tests should be read as "if the cell above/below/left/right is not an O and its address was not already explored...
+    'If it's a blank, add 1 to the count of blanks; add its address to the list of addresses explored; explore its neighbors."
+    If Range(CurrentAddress).Offset(-1, 0) Like "[I ]" And InStr(ListOfAddresses, Range(CurrentAddress).Offset(-1, 0).Address) = 0 Then
+        If Range(CurrentAddress).Offset(-1, 0) = " " Then NumberOfBlanks = NumberOfBlanks + 1
+        ListOfAddresses = ListOfAddresses & Range(CurrentAddress).Offset(-1, 0).Address
+        GetContiguousAddresses = GetContiguousAddresses(Range(CurrentAddress).Offset(-1, 0).Address)
+    End If
+    If Range(CurrentAddress).Offset(1, 0) Like "[I ]" And InStr(ListOfAddresses, Range(CurrentAddress).Offset(1, 0).Address) = 0 Then
+        If Range(CurrentAddress).Offset(1, 0) = " " Then NumberOfBlanks = NumberOfBlanks + 1
+        ListOfAddresses = ListOfAddresses & Range(CurrentAddress).Offset(1, 0).Address
+        GetContiguousAddresses = GetContiguousAddresses(Range(CurrentAddress).Offset(1, 0).Address)
+    End If
+    If Range(CurrentAddress).Offset(0, -1) Like "[I ]" And InStr(ListOfAddresses, Range(CurrentAddress).Offset(0, -1).Address) = 0 Then
+        If Range(CurrentAddress).Offset(0, -1) = " " Then NumberOfBlanks = NumberOfBlanks + 1
+        ListOfAddresses = ListOfAddresses & Range(CurrentAddress).Offset(0, -1).Address
+        GetContiguousAddresses = GetContiguousAddresses(Range(CurrentAddress).Offset(0, -1).Address)
+    End If
+    If Range(CurrentAddress).Offset(0, 1) Like "[I ]" And InStr(ListOfAddresses, Range(CurrentAddress).Offset(0, 1).Address) = 0 Then
+        If Range(CurrentAddress).Offset(0, 1) = " " Then NumberOfBlanks = NumberOfBlanks + 1
+        ListOfAddresses = ListOfAddresses & Range(CurrentAddress).Offset(0, 1).Address
+        GetContiguousAddresses = GetContiguousAddresses(Range(CurrentAddress).Offset(0, 1).Address)
+    End If
+End Function
+
+Sub DrawLoop()
+    'Draws the "loop", in the sense of "surrounding all I and no O".
+    'Each time we meet a blank, we make a copy of the board where that blank is an O.
+    'If AreContiguous says the board is not winnable, the blank becomes an I, otherwise it becomes an O.
+    For Each Cell In Board
+        If Cell.Value = " " Then
+            Board.Copy Destination:=Cells(Board.Row + Board.Rows.Count + 1, 2)
+            Cell.Offset(Board.Rows.Count + 1, 0) = "O"
+            If Not AreContiguous(Range(Cells(Board.Row + Board.Rows.Count + 1, 2), Cells(Board.Row + Board.Rows.Count * 2, Board.Columns.Count * 2))) Then Cell.Value = "I" Else: Cell.Value = "O"
+            Cell.Font.Color = vbWhite
+        End If
+    Next Cell
+    Range(Cells(Board.Row + Board.Rows.Count + 1, 2), Cells(Board.Row + Board.Rows.Count * 2, Board.Columns.Count * 2)).Clear
+    'Since there are only Is and Os by now, we draw the loop by drawing borders around each I...
+    'As long as there is no I in that direction.
+    For Each Cell In Board
+        If Cell.Value = "I" Then
+            If Cell.Offset(-1, 0) <> "I" Then Cell.Borders(xlEdgeTop).LineStyle = xlDouble
+            If Cell.Offset(0, -1) <> "I" Then Cell.Borders(xlEdgeLeft).LineStyle = xlDouble
+            If Cell.Offset(0, 1) <> "I" Then Cell.Borders(xlEdgeRight).LineStyle = xlDouble
+            If Cell.Offset(1, 0) <> "I" Then Cell.Borders(xlEdgeBottom).LineStyle = xlDouble
+        End If
+    Next Cell
+    ListOfAddresses = ""
+    NumberOfBlanks = 0
+    Application.ScreenUpdating = True
+End Sub
+
+Function MyMatch(ToFind As String, ToLookIn As Variant) As Integer
+    'Just a copy of the MATCH() function, which causes an error if it does not find the sought value.
+    For Each Element In ToLookIn
+        MyMatch = MyMatch + 1
+        If Element = ToFind Then Exit Function
+    Next Element
+    MyMatch = 0
+End Function
+
+Function Rand(Low As Integer, High As Integer) As Integer
+    Randomize
+    Rand = Int(High * Rnd) + Low
+End Function
